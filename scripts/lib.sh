@@ -165,7 +165,7 @@ detect_network_interfaces() {
     done < <(ls /sys/class/net/ 2>/dev/null | sort)
 
     export DETECTED_IFACES
-    return "${#DETECTED_IFACES[@]}"
+    return 0
 }
 
 # print_iface_menu — prints a numbered list of discovered interfaces with
@@ -210,7 +210,9 @@ get_os_pkg() {
 
 # ─── GUARDS ───────────────────────────────────────────────────────────────────
 require_root() {
-    [[ $EUID -ne 0 ]] && error "This script must be run as root. Use: sudo bash $0"
+    if [[ $EUID -ne 0 ]]; then
+        error "This script must be run as root. Use: sudo bash $0"
+    fi
 }
 
 # require_debian_based — replaces the old require_ubuntu_2404().
@@ -493,9 +495,9 @@ spinner() {
 : "${CHECKPOINT_FILE:=${LOG_DIR:-/tmp}/.deployment_checkpoint}"
 
 step_done() { echo "$1" >> "${CHECKPOINT_FILE}"; }
-step_ran()  { grep -qxF "$1" "${CHECKPOINT_FILE}" 2>/dev/null; }
+step_ran()  { grep -qxF "$1" "${CHECKPOINT_FILE}" 2>/dev/null || return 1; }
 clear_checkpoints() {
-    [[ -f "${CHECKPOINT_FILE}" ]] && rm "${CHECKPOINT_FILE}"
+    if [[ -f "${CHECKPOINT_FILE}" ]]; then rm "${CHECKPOINT_FILE}"; fi
     log "Checkpoint file cleared."
 }
 
