@@ -6,18 +6,6 @@ A full-stack OpenStack automation suite for Debian-based Linux — from bare-met
 
 ---
 
-## ✨ What's New in v4
-
-- **Auto-detection** — `HOST_IP` and `INTERFACE_NAME` are detected from your default route on startup. No editing `main.env` before running.
-- **6-step Setup Wizard** — now covers IP, network interface (with live NIC picker), admin password, DB password, Keystone endpoint selection, and extra service toggling.
-- **Multi-distro support** — works on any Debian-based distro with `apt`, `systemd`, and kernel 5.4+. No longer Ubuntu 24.04 only.
-- **Bare-metal ready** — detects physical vs VM hardware, shows a pre-flight checklist, warns on SSH-risk interface selection.
-- **Password safety** — all config writes use Python, not `sed`. Passwords with `*`, `/`, `@`, `#`, and other special characters are handled correctly.
-- **`set -euo pipefail` hardened** — every `(( ))` increment, `&&` guard, and function return value is safe under strict mode.
-- **Resume deployments** — `--resume` picks up from the last completed checkpoint after a failure.
-
----
-
 ## 🗂️ Project Structure
 
 ```
