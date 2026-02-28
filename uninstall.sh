@@ -1,47 +1,36 @@
 #!/usr/bin/env bash
 # =============================================================================
-# uninstall.sh — Remove OpenStack completely from this server  (v3)
+# uninstall.sh — Remove OpenStack completely from this server  (v4)
 # =============================================================================
 # WARNING: This is destructive and irreversible!
 #
-# Changes from v2:
-#   • Distro-agnostic: sources lib.sh for require_debian_based / detect_distro
-#   • Detects and prints distro + hardware info in the warning banner
-#   • Uses distro-agnostic internet check (no Ubuntu mirror hardcode)
+# Usage:
+#   sudo bash uninstall.sh            # interactive
+#   sudo bash uninstall.sh --dry-run  # preview only, no changes
 # =============================================================================
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB="${SCRIPT_DIR}/scripts/lib.sh"
-CONFIG="${SCRIPT_DIR}/configs/main.env"
 
-# Source lib.sh for colour helpers and distro detection if available
-if [[ -f "${LIB}" ]]; then
-    # shellcheck disable=SC1090
-    source "${LIB}"
-fi
-if [[ -f "${CONFIG}" ]]; then
-    # shellcheck disable=SC1090
-    source "${CONFIG}"
-fi
+# Try to source lib.sh and main.env — non-fatal if missing
+if [[ -f "${SCRIPT_DIR}/scripts/lib.sh"    ]]; then source "${SCRIPT_DIR}/scripts/lib.sh"; fi
+if [[ -f "${SCRIPT_DIR}/configs/main.env"  ]]; then source "${SCRIPT_DIR}/configs/main.env"; fi
 
-# Fallback colour definitions if lib.sh wasn't found
-RED='\033[0;31m';  YELLOW='\033[1;33m'
-GREEN='\033[0;32m'; CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
+# Fallback colours if lib.sh wasn't found
+RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; DIM='\033[2m'; NC='\033[0m'
 
-# ─── DRY-RUN FLAG ─────────────────────────────────────────────────────────────
+# ─── DRY-RUN ──────────────────────────────────────────────────────────────────
 DRY_RUN=false
 for arg in "$@"; do
-    [[ "${arg}" == "--dry-run" ]] && DRY_RUN=true
+    if [[ "${arg}" == "--dry-run" ]]; then DRY_RUN=true; fi
 done
 
 if [[ "${DRY_RUN}" == "true" ]]; then
-    echo -e "\n${CYAN}${BOLD}  ── DRY-RUN MODE ──${NC}"
-    echo -e "  ${DIM}No changes will be made. Every action will be printed instead.${NC}\n"
+    echo -e "\n${CYAN}${BOLD}  ── DRY-RUN MODE — no changes will be made ──${NC}\n"
 fi
 
-# ─── HELPER ───────────────────────────────────────────────────────────────────
 run() {
     if [[ "${DRY_RUN}" == "true" ]]; then
         echo -e "  ${DIM}[DRY-RUN]${NC} $*"
@@ -56,7 +45,6 @@ run_sql() {
         echo -e "  ${DIM}[DRY-RUN] mysql:${NC} ${sql}"
         return 0
     fi
-    # Password via options-file so it never appears in ps aux
     mysql --defaults-extra-file=<(printf '[client]\npassword=%s\n' "${DB_PASS:-}") \
           -u root <<< "${sql}" 2>/dev/null || true
 }
@@ -67,22 +55,9 @@ if command -v detect_distro &>/dev/null; then
 else
     DISTRO_ID=$(grep "^ID=" /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "unknown")
 fi
-HW=$(systemd-detect-virt 2>/dev/null || echo "unknown")
-[[ "${HW}" == "none" ]] && HW="physical"
 
-# ─── BANNER ───────────────────────────────────────────────────────────────────
-echo -e "${RED}"
-echo "  ┌─────────────────────────────────────────────────────────┐"
-echo "  │   ⚠  WARNING — DESTRUCTIVE OPERATION                   │"
-echo "  │                                                         │"
-echo "  │   This will COMPLETELY REMOVE OpenStack from:           │"
-echo "  │   $(printf '%-43s' "  Host: $(hostname) (${HOST_IP:-unknown IP})") │"
-echo "  │   $(printf '%-43s' "  OS:   ${DISTRO_ID} / hw: ${HW}") │"
-echo "  │                                                         │"
-echo "  │   All VMs, networks, images, databases, and configs     │"
-echo "  │   will be permanently deleted.                          │"
-echo "  └─────────────────────────────────────────────────────────┘"
-echo -e "${NC}"
+HW=$(systemd-detect-virt 2>/dev/null || echo "unknown")
+if [[ "${HW}" == "none" ]]; then HW="physical"; fi
 
 # ─── GUARD: must be root ──────────────────────────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
@@ -90,23 +65,35 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
+# ─── BANNER ───────────────────────────────────────────────────────────────────
+echo -e "${RED}"
+echo "  ┌─────────────────────────────────────────────────────────┐"
+echo "  │   ⚠  WARNING — DESTRUCTIVE OPERATION                   │"
+echo "  │                                                         │"
+printf "  │   Host  : %-44s│\n" "$(hostname) (${HOST_IP:-unknown IP})"
+printf "  │   OS    : %-44s│\n" "${DISTRO_ID} / hw: ${HW}"
+echo "  │                                                         │"
+echo "  │   ALL VMs, networks, images, databases, and configs     │"
+echo "  │   will be permanently deleted.                          │"
+echo "  └─────────────────────────────────────────────────────────┘"
+echo -e "${NC}"
+
 # ─── STEP 1: Confirm hostname ─────────────────────────────────────────────────
 CURRENT_HOST=$(hostname)
-echo -e "  ${YELLOW}To prevent accidents, type this server's exact hostname to continue.${NC}"
+echo -e "  ${YELLOW}Type this server's hostname to continue.${NC}"
 echo -ne "  Hostname (${BOLD}${CURRENT_HOST}${NC}): "
 read -r host_input
 
 if [[ "${host_input}" != "${CURRENT_HOST}" ]]; then
-    echo -e "\n  Hostname mismatch — input was '${host_input}', expected '${CURRENT_HOST}'."
-    echo "  Aborted."
+    echo -e "\n  Hostname mismatch ('${host_input}' ≠ '${CURRENT_HOST}'). Aborted."
     exit 0
 fi
 
-# ─── STEP 2: Backup prompt ────────────────────────────────────────────────────
+# ─── STEP 2: Offer backup ─────────────────────────────────────────────────────
 echo ""
-echo -e "  ${YELLOW}Would you like to back up the OpenStack databases before wiping?${NC}"
-echo -e "  ${DIM}This takes ~30s and saves a SQL dump to /var/backups/openstack-pre-uninstall/${NC}"
-echo -ne "  Create backup? (Y/n): "
+echo -e "  ${YELLOW}Create a database backup before wiping?${NC}"
+echo -e "  ${DIM}~30 seconds, saves SQL dumps to /var/backups/openstack-pre-uninstall/${NC}"
+echo -ne "  Backup now? (Y/n): "
 read -r backup_choice
 
 if [[ ! "${backup_choice}" =~ ^[Nn]$ ]]; then
@@ -116,7 +103,6 @@ if [[ ! "${backup_choice}" =~ ^[Nn]$ ]]; then
     elif command -v mysqldump &>/dev/null; then
         mkdir -p "${BACKUP_DIR}"
         for db in keystone glance placement nova_api nova nova_cell0 neutron; do
-            # Skip databases that don't exist (suppress errors)
             mysqldump \
                 --defaults-extra-file=<(printf '[client]\npassword=%s\n' "${DB_PASS:-}") \
                 -u root --single-transaction "${db}" \
@@ -124,14 +110,14 @@ if [[ ! "${backup_choice}" =~ ^[Nn]$ ]]; then
         done
         echo -e "  ${GREEN}✔${NC} Backup saved to ${BACKUP_DIR}"
     else
-        echo -e "  ${YELLOW}  ⚠${NC} mysqldump not found — skipping database backup."
+        echo -e "  ${YELLOW}  ⚠${NC} mysqldump not found — skipping backup."
     fi
 fi
 
 # ─── STEP 3: Final confirmation ───────────────────────────────────────────────
 echo ""
-echo -e "  ${RED}${BOLD}Last chance.${NC} Everything will be deleted."
-echo -ne "  Type ${BOLD}yes I am sure${NC} to proceed: "
+echo -e "  ${RED}${BOLD}Last chance. Type  yes I am sure  to proceed:${NC} "
+echo -ne "  > "
 read -r final_confirm
 
 if [[ "${final_confirm}" != "yes I am sure" ]]; then
@@ -143,13 +129,13 @@ echo ""
 echo -e "  ${CYAN}Starting removal...${NC}"
 echo ""
 
-# ─── STEP 4: Stop services before purging ─────────────────────────────────────
+# ─── STEP 4: Stop services ────────────────────────────────────────────────────
 echo -e "  Stopping OpenStack services..."
 
 SERVICES=(
     nova-api nova-conductor nova-scheduler nova-compute nova-novncproxy
     neutron-server neutron-linuxbridge-agent neutron-dhcp-agent neutron-metadata-agent
-    glance-api placement-api keystone apache2
+    glance-api placement-api apache2
     rabbitmq-server memcached etcd
     mariadb mysql
 )
@@ -179,33 +165,27 @@ for pkg in "${PKGS[@]}"; do
 done
 
 run apt-get autoremove -y
-echo -e "  ${GREEN}✔${NC} Packages purged."
+echo -e "  ${GREEN}✔${NC} Packages removed."
 
 # ─── STEP 6: Drop databases ───────────────────────────────────────────────────
 echo ""
 echo -e "  Dropping databases..."
 
-if command -v mysql &>/dev/null || [[ "${DRY_RUN}" == "true" ]]; then
-    for db in keystone glance placement nova_api nova nova_cell0 neutron; do
-        run_sql "DROP DATABASE IF EXISTS ${db};"
-        echo -e "  ${GREEN}✔${NC} Dropped: ${db}"
-    done
-else
-    echo -e "  ${DIM}mysql not found — skipping database drop.${NC}"
-fi
+for db in keystone glance placement nova_api nova nova_cell0 neutron; do
+    run_sql "DROP DATABASE IF EXISTS ${db};"
+    echo -e "  ${GREEN}✔${NC} Dropped: ${db}"
+done
 
-# ─── STEP 7: Remove config and data directories ───────────────────────────────
+# ─── STEP 7: Remove config and data dirs ─────────────────────────────────────
 echo ""
-echo -e "  Removing config and data files..."
+echo -e "  Removing config and data directories..."
 
 DIRS=(
     /etc/nova /etc/neutron /etc/glance
-    /etc/keystone /etc/placement
-    /etc/openstack-dashboard
+    /etc/keystone /etc/placement /etc/openstack-dashboard
     /var/lib/nova /var/lib/neutron /var/lib/glance
     /var/lib/keystone /var/lib/placement
-    /var/log/nova /var/log/neutron /var/log/glance
-    /var/log/keystone
+    /var/log/nova /var/log/neutron /var/log/glance /var/log/keystone
 )
 
 for dir in "${DIRS[@]}"; do
@@ -215,31 +195,32 @@ for dir in "${DIRS[@]}"; do
     fi
 done
 
-# ─── STEP 8: Clean up /etc/hosts entries ─────────────────────────────────────
+# ─── STEP 8: Clean up /etc/hosts ─────────────────────────────────────────────
 echo ""
-echo -e "  Cleaning up /etc/hosts entries..."
+echo -e "  Cleaning /etc/hosts..."
 
-# Remove lines added by deploy.sh (tagged with # openstack-complete)
 if grep -q "# openstack-complete" /etc/hosts 2>/dev/null; then
     run sed -i '/# openstack-complete/d' /etc/hosts
     echo -e "  ${GREEN}✔${NC} Removed openstack-complete entries from /etc/hosts"
 else
-    echo -e "  ${DIM}No openstack-complete entries found in /etc/hosts — nothing to do.${NC}"
+    echo -e "  ${DIM}No openstack-complete entries in /etc/hosts.${NC}"
 fi
 
 # ─── STEP 9: Remove cron jobs ─────────────────────────────────────────────────
 echo ""
-echo -e "  Removing scheduled cron jobs..."
+echo -e "  Removing cron jobs..."
 
-for cron_file in /etc/cron.d/openstack-monitor /etc/cron.d/openstack-backup \
-                 /etc/cron.d/openstack-ssl-renew; do
+for cron_file in \
+    /etc/cron.d/openstack-monitor \
+    /etc/cron.d/openstack-backup \
+    /etc/cron.d/openstack-ssl-renew; do
     if [[ -f "${cron_file}" ]]; then
         run rm -f "${cron_file}"
-        echo -e "  ${GREEN}✔${NC} Removed cron: ${cron_file}"
+        echo -e "  ${GREEN}✔${NC} Removed: ${cron_file}"
     fi
 done
 
-# ─── STEP 10: Remove deployment logs ─────────────────────────────────────────
+# ─── STEP 10: Optionally remove logs ─────────────────────────────────────────
 if [[ -d "${SCRIPT_DIR}/logs" ]]; then
     echo ""
     echo -ne "  ${YELLOW}Remove deployment logs in ${SCRIPT_DIR}/logs/?${NC} (y/N): "
