@@ -1,4 +1,4 @@
-# 🌩️ OpenStack Complete
+# 🌩️ OpenStack Homelab
 
 **One project. One config file. One command.**
 
