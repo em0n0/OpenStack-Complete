@@ -1,530 +1,341 @@
-# 🌩️ OpenStack Homelab
+**OpenStack Complete** automates the full lifecycle of a self-hosted OpenStack cloud:
 
-**One project. One config file. One command.**
+- **Deploy** — interactive wizard + single command installs the entire stack
+- **Operate** — health dashboard, backup/restore, SSL, Kubernetes on top
+- **Harden** — CIS Benchmark audit with scored report and auto-fix
+- **Remove** — safe uninstaller with multiple confirmation interlocks
 
-A full-stack OpenStack automation suite for Debian-based Linux — from bare-metal deployment to production operations. Supports Ubuntu 20.04+, Debian 11/12, Linux Mint 21+, and more.
-
----
-
-## 🗂️ Project Structure
-
-```
-openstack-complete/
-│
-├── deploy.sh                    ← THE ENTRY POINT — start here
-├── uninstall.sh                 ← Safe removal with hostname confirmation + backup
-├── configs/
-│   └── main.env                 ← THE ONLY CONFIG FILE — auto-detects IP & interface
-│
-└── scripts/
-    ├── lib.sh                   ← Shared helpers (colours, logging, detection, guards)
-    │
-    ├── base/                    ← Core OpenStack (01–08)
-    │   ├── 01_prerequisites.sh  │  MariaDB, RabbitMQ, Memcached, NTP, Etcd
-    │   ├── 02_keystone.sh       │  Identity & Authentication
-    │   ├── 03_glance.sh         │  VM Image Storage
-    │   ├── 04_placement.sh      │  Resource Tracking
-    │   ├── 05_nova.sh           │  Compute (VM lifecycle)
-    │   ├── 06_neutron.sh        │  Virtual Networking
-    │   ├── 07_horizon.sh        │  Web Dashboard
-    │   └── 08_verify.sh         │  Health checks
-    │
-    ├── services/                ← Extra OpenStack Services (09–16)
-    │   ├── 09_cinder.sh         │  Block Storage (like AWS EBS)
-    │   ├── 10_swift.sh          │  Object Storage (like AWS S3)
-    │   ├── 11_heat.sh           │  Orchestration / IaC (like CloudFormation)
-    │   ├── 12_ceilometer.sh     │  Telemetry & Metrics (like CloudWatch)
-    │   ├── 13_barbican.sh       │  Secrets Manager (like Vault)
-    │   ├── 14_octavia.sh        │  Load Balancer (like AWS ELB)
-    │   ├── 15_manila.sh         │  Shared Filesystems (like AWS EFS)
-    │   └── 16_designate.sh      │  DNS Service (like Route 53)
-    │
-    ├── multinode/               ← Multi-node cluster support
-    │   ├── 00_preflight.sh      │  Hostname, hosts, NTP, firewall (all nodes)
-    │   ├── 02_compute.sh        │  Nova + Neutron agent for Compute nodes
-    │   └── 03_storage.sh        │  Cinder + Swift backend for Storage nodes
-    │
-    ├── monitoring/              ← Health Dashboard & Alerting
-    │   ├── monitor.sh           │  Live colour dashboard + Slack/email alerts
-    │   └── install-cron.sh      │  Schedule monitoring every 5 minutes
-    │
-    ├── backup/                  ← Backup & Disaster Recovery
-    │   ├── backup.sh            │  Backup VMs, databases, configs, images
-    │   └── restore.sh           │  Restore from any backup point
-    │
-    ├── k8s/
-    │   └── deploy-k8s.sh        ← Kubernetes cluster on OpenStack VMs
-    │
-    ├── ssl/
-    │   ├── ssl-manager.sh       ← Let's Encrypt cert management
-    │   └── reload-services.sh   │  Post-renewal hook
-    │
-    └── hardening/
-        └── server-harden.sh     ← CIS Benchmark security audit & auto-fix
-```
+Everything is driven by a single configuration file (`configs/main.env`) that the wizard fills in automatically. You never need to touch any of the numbered install scripts.
 
 ---
 
-## 📋 System Requirements
+## Table of Contents
 
-| Resource | Minimum (All-in-One) | Recommended |
-|---|---|---|
-| **OS** | Any Debian-based distro, kernel 5.4+ | Ubuntu 22.04 / 24.04 LTS |
-| **CPU** | 4 cores (VT-x / AMD-V required) | 8+ cores |
-| **RAM** | 8 GB | 16–32 GB |
-| **Disk** | 50 GB | 100+ GB SSD |
-| **NICs** | 1 (minimum) | 2 (management + VM traffic) |
-
-**Supported distros:**
-
-| Distro | Status |
-|---|---|
-| Ubuntu 20.04 / 22.04 / 24.04 / 25.10 | ✅ Fully tested |
-| Debian 11 (Bullseye) / 12 (Bookworm) | ✅ Fully tested |
-| Linux Mint 21 / 22 | ✅ Community supported |
-| Pop!\_OS, elementary OS, Zorin | ⚠️ Best-effort |
-| Raspberry Pi OS (ARM64, 8 GB+ RAM) | ⚠️ Best-effort |
-
-> ⚠️ Use a **fresh** OS installation. Do not run on a server already in production use.
+- [Quick Start](#quick-start)
+- [System Requirements](#system-requirements)
+- [Project Structure](#project-structure)
+- [Configuration Reference](#configuration-reference)
+- [All Commands](#all-commands)
+- [Module Reference](#module-reference)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
-## ⚡ Quick Start
-
-### 1. Get the project
+## Quick Start
 
 ```bash
-git clone https://github.com/your-username/openstack-complete
+# Clone the repository
+git clone https://github.com/yourusername/openstack-complete.git
 cd openstack-complete
-```
 
-Or if you downloaded the files manually, set up the folder structure:
-
-```bash
-mkdir -p ~/openstack-complete/configs ~/openstack-complete/scripts
-cp deploy.sh uninstall.sh ~/openstack-complete/
-cp main.env               ~/openstack-complete/configs/
-cp lib.sh                 ~/openstack-complete/scripts/
-cd ~/openstack-complete
-```
-
-### 2. Run it
-
-```bash
+# Run — the wizard launches automatically on first use
 sudo bash deploy.sh
 ```
 
-That's it. The script will:
+The **Setup Wizard** detects your IP and network interface automatically and asks you to confirm them. It only requires manual input for passwords. The entire deployment takes 20–40 minutes.
 
-1. **Auto-detect** your IP address and primary network interface from the system's default route
-2. **Launch the Setup Wizard** automatically on first run (or if IP couldn't be detected)
-3. Drop you into the **interactive menu** once configuration is saved
-
-### 3. The Setup Wizard (6 steps)
-
-The wizard runs automatically on first launch. You can re-run it any time:
+### Skip the wizard (advanced)
 
 ```bash
-sudo bash deploy.sh --wizard
-```
-
-| Step | What it does |
-|---|---|
-| **1 — Host IP** | Shows auto-detected IP, lets you confirm or pick a different one |
-| **2 — Network Interface** | Lists all physical NICs with state + IP; auto-selects the default-route interface |
-| **3 — Admin Password** | Sets the OpenStack admin password with strength meter and confirmation |
-| **4 — DB Password** | Sets the MariaDB root password, independently from admin |
-| **5 — Keystone Endpoints** | Toggle which services get registered in the service catalog |
-| **6 — Extra Services** | Toggle which services get installed (pre-filled from Step 5) |
-
-All settings are written to `configs/main.env` safely — passwords with special characters are handled correctly.
-
-### 4. Or use flags directly
-
-```bash
-sudo bash deploy.sh --full       # Deploy everything in main.env
-sudo bash deploy.sh --base       # Base OpenStack only (Keystone → Horizon)
-sudo bash deploy.sh --services   # Extra services only
-sudo bash deploy.sh --resume     # Continue after a failed deployment
-sudo bash deploy.sh --wizard     # Re-run the Setup Wizard
-sudo bash deploy.sh --monitor    # Live health dashboard
-sudo bash deploy.sh --backup     # Backup VMs, databases, configs
-sudo bash deploy.sh --restore    # Restore from a backup
-sudo bash deploy.sh --harden     # CIS Benchmark audit & auto-fix
-sudo bash deploy.sh --ssl        # Let's Encrypt cert management
-sudo bash deploy.sh --k8s        # Deploy Kubernetes
-sudo bash deploy.sh --verify     # Health check all services
-sudo bash deploy.sh --config     # Show current configuration
-sudo bash deploy.sh --dry-run    # Preview all actions without executing
-sudo bash deploy.sh --help       # Show this list
-```
-
----
-
-## 🖥️ Bare-Metal Deployment
-
-When the script detects it is running on physical hardware (not a VM), it prints a pre-flight checklist:
-
-```
-── Bare-Metal Deployment Detected ──
-  • CPU virtualisation (VT-x / AMD-V) enabled in BIOS/UEFI
-  • 2 NICs recommended — one management, one for VM traffic
-  • NTP reachable — clock skew breaks Keystone token validation
-  • IOMMU enabled for GPU/SR-IOV passthrough (optional)
-```
-
-**Before running on bare-metal, do these three things manually:**
-
-```bash
-# 1. Set a static IP on your management NIC
-#    Edit /etc/netplan/00-installer-config.yaml and apply
-sudo netplan apply
-
-# 2. Set hostname and /etc/hosts
-sudo hostnamectl set-hostname controller
-echo "YOUR_IP controller" | sudo tee -a /etc/hosts
-
-# 3. Sync the clock
-sudo timedatectl set-ntp true
-timedatectl status   # should show NTP service: active
-```
-
-**Two-NIC setup (recommended):**
-- `ens3` / `eth0` — management NIC, keeps your SSH session, has a static IP
-- `ens4` / `eth1` — provider NIC, handed to Neutron for VM traffic, **no IP assigned**
-
-In the wizard, select your **management NIC** for the IP (Step 1) and your **provider NIC** for the interface (Step 2). The wizard will warn you if you pick a NIC that already has an IP address assigned.
-
----
-
-## ⚙️ Configuration Reference
-
-`configs/main.env` is auto-populated by the wizard. Key settings:
-
-```bash
-# ── Auto-detected at startup (wizard confirms / overrides) ────────────────────
-HOST_IP="192.168.1.50"        # detected from default route
-INTERFACE_NAME="ens4"         # detected from default route interface
-CONTROLLER_IP="${HOST_IP}"    # same as HOST_IP in all-in-one mode
-
-# ── Deployment ────────────────────────────────────────────────────────────────
-DEPLOY_MODE="all-in-one"      # or "multi-node"
-
-# ── Passwords (set by wizard, written safely via Python) ──────────────────────
-ADMIN_PASS="your-admin-password"
-DB_PASS="your-db-password"
-
-# ── Keystone service catalog ──────────────────────────────────────────────────
-KEYSTONE_SERVICES_STR="keystone glance placement nova neutron"
-
-# ── Extra services ────────────────────────────────────────────────────────────
-INSTALL_CINDER="false"
-INSTALL_SWIFT="false"
-INSTALL_HEAT="false"
-INSTALL_BARBICAN="false"
-INSTALL_DESIGNATE="false"
-INSTALL_CEILOMETER="false"    # resource-heavy
-INSTALL_OCTAVIA="false"       # needs Amphora image
-INSTALL_MANILA="false"
-
-# ── Monitoring & alerts ───────────────────────────────────────────────────────
-SLACK_WEBHOOK_URL="https://hooks.slack.com/..."
-ALERT_EMAIL="ops@yourcompany.com"
-
-# ── Backups ───────────────────────────────────────────────────────────────────
-BACKUP_PATH="/var/backups/openstack"
-BACKUP_KEEP_DAYS=7
-
-# ── SSL ───────────────────────────────────────────────────────────────────────
-ACME_EMAIL="admin@yourdomain.com"
-OPENSTACK_DOMAIN="cloud.yourdomain.com"
-```
-
-### Secrets file (recommended for production)
-
-Keep passwords out of `main.env` by using a separate secrets file:
-
-```bash
-# Create the secrets file
-cat > configs/.secrets.env << EOF
-ADMIN_PASS="your-strong-password"
-DB_PASS="your-db-password"
-RABBIT_PASS="your-rabbit-password"
-SERVICE_PASS="your-service-password"
-EOF
-
-chmod 600 configs/.secrets.env
-```
-
-Add to `.gitignore`:
-```
-configs/main.env
-configs/.secrets.env
-configs/.secrets.enc
-```
-
-To encrypt the secrets file:
-```bash
-openssl enc -aes-256-cbc -pbkdf2 -in configs/.secrets.env -out configs/.secrets.enc
-rm configs/.secrets.env   # keep only the encrypted version
-```
-
----
-
-## 📖 Module Reference
-
-### 🏗️ Base OpenStack
-
-Deploys: **Keystone → Glance → Placement → Nova → Neutron → Horizon**
-
-```bash
-sudo bash deploy.sh --base
-```
-
-After deployment:
-
-```bash
-# Dashboard
-http://YOUR_IP/horizon          # login: admin / your ADMIN_PASS
-
-# CLI
-source configs/admin-openrc.sh
-openstack service list
-openstack compute service list
-openstack network agent list    # linuxbridge-agent should show ":-)" True
-```
-
-**First VM test:**
-
-```bash
-# Upload an image
-wget https://cloud-images.ubuntu.com/minimal/releases/jammy/release/ubuntu-22.04-minimal-cloudimg-amd64.img
-openstack image create "ubuntu-22.04" \
-  --file ubuntu-22.04-minimal-cloudimg-amd64.img \
-  --disk-format qcow2 --container-format bare --public
-
-# Create network and launch a VM
-openstack network create internal
-openstack subnet create --network internal --subnet-range 192.168.100.0/24 internal-subnet
-openstack server create --flavor m1.small --image ubuntu-22.04 --network internal test-vm
-openstack server list   # wait for ACTIVE status
-```
-
----
-
-### 📦 Extra Services
-
-Enable in the wizard (Steps 5–6) or toggle in `main.env`, then:
-
-```bash
-sudo bash deploy.sh --services
-```
-
-| Service | Quick test |
-|---|---|
-| Cinder | `openstack volume create --size 5 test-vol` |
-| Swift | `openstack container create my-bucket` |
-| Heat | `openstack stack create -t template.yaml my-stack` |
-| Barbican | `openstack secret store --name pw --payload 'MyPass'` |
-| Designate | `openstack zone create --email a@b.com example.com.` |
-| Octavia | `openstack loadbalancer create --name lb1 --vip-subnet-id SUBNET_ID` |
-
----
-
-### 🖥️ Multi-Node
-
-For production clusters with separate controller, compute, and storage nodes:
-
-```bash
-# 1. On ALL nodes — sets up hostname, /etc/hosts, NTP, firewall
-sudo bash scripts/multinode/00_preflight.sh
-
-# 2. On controller — run full base deployment
-sudo bash deploy.sh --base
-
-# 3. On each compute node
-sudo bash scripts/multinode/02_compute.sh
-
-# 4. On storage node
-sudo bash scripts/multinode/03_storage.sh
-```
-
-Or use the menu: `sudo bash deploy.sh` → option **5**.
-
----
-
-### 📊 Health Dashboard
-
-```bash
-sudo bash deploy.sh --monitor
-```
-
-Options: **once** / **live watch** (refresh every N seconds) / **alert** (Slack/email on failure) / **install cron** (every 5 min).
-
-Checks: every service API, port reachability, system resources (CPU/RAM/disk), NTP sync, and database connectivity.
-
----
-
-### 💾 Backup & Restore
-
-```bash
-# Backup
-sudo bash deploy.sh --backup
-# Options: full / databases only / configs only / Glance images / VM snapshots / install daily cron
-
-# Restore
-sudo bash deploy.sh --restore
-# Lists available backup timestamps, restore DB / configs / VM / full
-```
-
-Backups are saved to `BACKUP_PATH` (default `/var/backups/openstack`) and pruned after `BACKUP_KEEP_DAYS` days.
-
----
-
-### ☸️ Kubernetes
-
-```bash
-sudo bash deploy.sh --k8s
-```
-
-Spins up OpenStack VMs, bootstraps a K8s control plane, joins worker nodes, and writes `kubeconfig`:
-
-```bash
-export KUBECONFIG=scripts/k8s/configs/kubeconfig
-kubectl get nodes
-```
-
-Worker count is set by `K8S_WORKER_COUNT` in `main.env`.
-
----
-
-### 🔒 SSL Certificates
-
-```bash
-sudo bash deploy.sh --ssl
-```
-
-Options: issue cert / renew all expiring / view expiry dates / secure OpenStack endpoints / install auto-renewal cron.
-
-Requires `ACME_EMAIL` and `OPENSTACK_DOMAIN` to be set in `main.env`.
-
----
-
-### 🛡️ Server Hardening
-
-```bash
-sudo bash deploy.sh --harden
-```
-
-Options: **audit only** (check, no changes) or **harden** (check + auto-fix). Generates a scored CIS Benchmark report in `scripts/hardening/reports/`.
-
-```
-Score: 47/52 (90%) — Grade: A
-```
-
----
-
-## 🔁 Resuming a Failed Deployment
-
-If a deployment fails midway, don't start over:
-
-```bash
-sudo bash deploy.sh --resume
-```
-
-The script reads `logs/.deployment_checkpoint`, shows which steps completed, and continues from the failure point. Each step is idempotent — re-running a completed step is safe.
-
-To start completely fresh:
-
-```bash
-rm logs/.deployment_checkpoint
+# Accept auto-detected settings, only ask for passwords
+sudo bash deploy.sh --quick
+
+# Or edit the config manually, then deploy
+nano configs/main.env
 sudo bash deploy.sh --full
 ```
 
 ---
 
-## 🧪 Dry Run
+## System Requirements
 
-Preview every action without touching the system:
+| Resource | Minimum (All-in-One) | Recommended |
+|---|---|---|
+| OS | Ubuntu Server 24.04 LTS | Ubuntu Server 24.04 LTS |
+| CPU | 4 cores | 8+ cores |
+| RAM | 8 GB | 16+ GB |
+| Disk | 50 GB free | 100+ GB |
+| Network | 1 NIC | 2 NICs (see [Network Architecture](docs/ARCHITECTURE.md)) |
 
-```bash
-sudo bash deploy.sh --dry-run --full
-```
+> ⚠️ **Use a fresh Ubuntu 24.04 installation.** Do not run on a server with existing services — the installer modifies MariaDB, Apache, networking, and system packages.
 
-All commands print with a `[DRY-RUN]` prefix. No packages are installed, no files are written, no services are started.
-
----
-
-## 📝 Logs
-
-All output is saved to `logs/deploy_YYYYMMDD_HHMMSS.log`.
-
-```bash
-sudo bash deploy.sh            # menu → option 14 to browse logs
-tail -f logs/deploy_*.log      # follow live
-```
-
-Logs older than `LOG_KEEP_DAYS` (default 30) are pruned automatically after a full deployment.
+Pre-flight checks (distro, disk space, RAM, internet) run automatically before deployment begins.
 
 ---
 
-## 🆘 Troubleshooting
+## Project Structure
 
-**Service is down:**
-```bash
-systemctl status nova-api
-journalctl -u nova-api -n 50 --no-pager
+```
+openstack-complete/
+│
+├── deploy.sh                    ← THE ENTRY POINT — run this
+├── uninstall.sh                 ← Safe full removal
+├── configs/
+│   └── main.env                 ← THE ONLY CONFIG FILE — wizard fills this in
+│
+├── scripts/
+│   ├── lib.sh                   ← Shared library (logging, guards, rollback, health)
+│   │
+│   ├── base/                    ← Core OpenStack — always installed
+│   │   ├── 01_prerequisites.sh  │  MariaDB, RabbitMQ, Memcached, NTP, Etcd
+│   │   ├── 02_keystone.sh       │  Identity & Authentication
+│   │   ├── 03_glance.sh         │  VM Image Storage
+│   │   ├── 04_placement.sh      │  Resource Tracking
+│   │   ├── 05_nova.sh           │  Compute (VM lifecycle)
+│   │   ├── 06_neutron.sh        │  Virtual Networking
+│   │   ├── 07_horizon.sh        │  Web Dashboard
+│   │   └── 08_verify.sh         │  Post-install health checks
+│   │
+│   ├── services/                ← Optional services (enable in main.env)
+│   │   ├── 09_cinder.sh         │  Block Storage    (like AWS EBS)
+│   │   ├── 10_swift.sh          │  Object Storage   (like AWS S3)
+│   │   ├── 11_heat.sh           │  Orchestration    (like CloudFormation)
+│   │   ├── 12_ceilometer.sh     │  Telemetry        (like CloudWatch)
+│   │   ├── 13_barbican.sh       │  Secrets Manager  (like Secrets Manager)
+│   │   ├── 14_octavia.sh        │  Load Balancer    (like ALB/NLB)
+│   │   ├── 15_manila.sh         │  Shared Filesystem (like EFS)
+│   │   └── 16_designate.sh      │  DNS Service       (like Route 53)
+│   │
+│   ├── multinode/               ← Multi-node cluster support
+│   │   ├── 00_preflight.sh      │  Hostname, hosts, NTP, firewall (all nodes)
+│   │   ├── 02_compute.sh        │  Nova + Neutron agent (compute nodes)
+│   │   └── 03_storage.sh        │  Cinder + Swift backend (storage nodes)
+│   │
+│   ├── monitoring/              ← Health Dashboard & Alerting
+│   │   ├── monitor.sh           │  Live dashboard + Slack/email alerts
+│   │   └── install-cron.sh      │  Schedule monitoring (every 5 min)
+│   │
+│   ├── backup/                  ← Backup & Disaster Recovery
+│   │   ├── backup.sh            │  VMs, databases, configs, images
+│   │   └── restore.sh           │  Restore from any backup point
+│   │
+│   ├── k8s/
+│   │   └── deploy-k8s.sh        ← Kubernetes cluster on OpenStack VMs
+│   │
+│   ├── ssl/
+│   │   ├── ssl-manager.sh       ← Let's Encrypt cert management
+│   │   └── reload-services.sh   │  Post-renewal hook
+│   │
+│   └── hardening/
+│       └── server-harden.sh     ← CIS Benchmark audit & scored auto-fix
+│
+├── docs/
+│   ├── ARCHITECTURE.md          ← Network layout, service dependency chain
+│   └── MULTINODE.md             ← Step-by-step multi-node setup guide
+│
+├── logs/                        ← Auto-created; deployment logs land here
+│
+├── CHANGELOG.md
+├── CONTRIBUTING.md
+└── SECURITY.md
 ```
 
-**Re-run a single step:**
+---
+
+## Configuration Reference
+
+The wizard writes all values automatically. These are the most important settings:
+
 ```bash
-sudo bash scripts/base/05_nova.sh
-sudo bash scripts/services/09_cinder.sh
+# ── Deployment topology ────────────────────────────────────────────────────
+DEPLOY_MODE="all-in-one"        # or "multi-node"
+HOST_IP="192.168.1.27"          # auto-detected; wizard confirms
+
+# ── Optional services (set "true" to install) ─────────────────────────────
+INSTALL_CINDER="false"          # Block storage    ~200 MB RAM
+INSTALL_SWIFT="false"           # Object storage   ~300 MB RAM
+INSTALL_HEAT="false"            # Orchestration    ~150 MB RAM
+INSTALL_CEILOMETER="false"      # Telemetry  ⚠ resource-heavy: 1-2 GB RAM
+INSTALL_BARBICAN="false"        # Secrets          ~100 MB RAM
+INSTALL_OCTAVIA="false"         # Load balancer    ~300 MB RAM
+INSTALL_MANILA="false"          # Shared FS        ~200 MB RAM
+INSTALL_DESIGNATE="false"       # DNS              ~100 MB RAM
+
+# ── Monitoring & Alerts ───────────────────────────────────────────────────
+SLACK_WEBHOOK_URL=""            # Incoming webhook URL — leave blank to disable
+ALERT_EMAIL=""                  # Alert recipient — leave blank to disable
+
+# ── Backup ────────────────────────────────────────────────────────────────
+BACKUP_PATH="/var/backups/openstack"
+BACKUP_KEEP_DAYS=7
+
+# ── SSL ───────────────────────────────────────────────────────────────────
+ACME_EMAIL="admin@yourdomain.com"
+OPENSTACK_DOMAIN="cloud.yourdomain.com"
 ```
 
-**Check all OpenStack services:**
+> 💡 **Security tip:** Move passwords out of `main.env` and into `configs/.secrets.env` (mode `600`). That file is gitignored and overrides `main.env` at runtime. Never commit `main.env` with real passwords.
+
+---
+
+## All Commands
+
 ```bash
-source configs/admin-openrc.sh
+# First-time setup
+sudo bash deploy.sh                    # Interactive menu (launches wizard on first run)
+sudo bash deploy.sh --wizard           # Re-run the setup wizard
+sudo bash deploy.sh --quick            # Wizard: accept auto-detected settings, only ask passwords
+
+# Deployment
+sudo bash deploy.sh --full             # Deploy everything configured in main.env
+sudo bash deploy.sh --base             # Base OpenStack only (Keystone → Horizon)
+sudo bash deploy.sh --services         # Optional services only
+sudo bash deploy.sh --resume           # Continue an interrupted deployment
+sudo bash deploy.sh --dry-run          # Preview all actions without executing
+
+# Recovery
+sudo bash deploy.sh --rollback-step nova   # Undo one failed step, then --resume
+
+# Operations
+sudo bash deploy.sh --verify           # Health check — status table of all services
+sudo bash deploy.sh --monitor          # Live health dashboard
+sudo bash deploy.sh --backup           # Backup VMs, databases, configs
+sudo bash deploy.sh --restore          # Restore from a backup point
+sudo bash deploy.sh --harden           # CIS Benchmark audit + auto-fix
+sudo bash deploy.sh --ssl              # SSL certificate management
+sudo bash deploy.sh --k8s              # Deploy Kubernetes on your OpenStack cloud
+sudo bash deploy.sh --multinode        # Multi-node cluster setup
+
+# Utility
+sudo bash deploy.sh --config           # Show current configuration
+sudo bash deploy.sh --help             # Show all flags
+```
+
+---
+
+## Module Reference
+
+### Base OpenStack
+
+Installs in order: **Keystone → Glance → Placement → Nova → Neutron → Horizon → Verify**
+
+After deployment:
+```bash
+# Dashboard
+open http://YOUR_IP/horizon      # admin / your ADMIN_PASS
+
+# CLI access (after sourcing main.env)
+source configs/main.env
 openstack service list
 openstack compute service list
-openstack network agent list
+openstack image list
 ```
 
-**Full health check:**
-```bash
-sudo bash deploy.sh --verify
-```
+### Optional Services
 
-**Completely remove OpenStack:**
-```bash
-sudo bash uninstall.sh            # interactive, confirms hostname, offers backup
-sudo bash uninstall.sh --dry-run  # preview what would be removed
-```
+Enable any service in `main.env` with `INSTALL_*="true"`, then run `--services` or `--full`.
 
-**Common issues:**
-
-| Symptom | Likely cause | Fix |
+| Service | Enable flag | Quick test |
 |---|---|---|
-| Script exits silently after `sudo` | Wrong folder structure | Run from inside `openstack-complete/` |
-| `configs/main.env not found` | Missing configs dir | `mkdir -p configs && cp main.env configs/` |
-| `scripts/lib.sh not found` | Missing scripts dir | `mkdir -p scripts && cp lib.sh scripts/` |
-| Keystone token errors | Clock drift | `sudo timedatectl set-ntp true` |
-| Neutron agents not showing `True` | Wrong interface | Re-run wizard, pick the correct NIC |
-| VM stays in BUILD state | Nova-compute not connected | `openstack compute service list` — check nova-compute row |
-| SSH drops during deployment | Neutron took management NIC | Use a second NIC for VM traffic |
+| Cinder | `INSTALL_CINDER="true"` | `openstack volume create --size 5 test-vol` |
+| Swift | `INSTALL_SWIFT="true"` | `openstack container create my-bucket` |
+| Heat | `INSTALL_HEAT="true"` | `openstack stack create -t template.yaml my-stack` |
+| Barbican | `INSTALL_BARBICAN="true"` | `openstack secret store --name pw --payload 'MyPass'` |
+| Designate | `INSTALL_DESIGNATE="true"` | `openstack zone create --email a@b.com example.com.` |
+
+### Backup & Restore
+
+```bash
+sudo bash deploy.sh --backup     # Full backup: VMs, databases, configs, images
+sudo bash deploy.sh --restore    # Interactive restore — shows backup points, pick what to restore
+```
+
+Backups are stored at `BACKUP_PATH` (default `/var/backups/openstack`) and auto-pruned after `BACKUP_KEEP_DAYS` days. Automated daily backups can be installed via the menu.
+
+### Kubernetes on OpenStack
+
+```bash
+sudo bash deploy.sh --k8s
+# Creates VMs, bootstraps cluster, joins workers, writes kubeconfig
+
+export KUBECONFIG=scripts/k8s/configs/kubeconfig
+kubectl get nodes
+```
+
+### Security Hardening
+
+```bash
+sudo bash deploy.sh --harden
+# Choose: Audit only (read-only) or Harden (audit + auto-fix)
+# Generates a scored report: 47/52 checks passed (90%) — Grade: A
+```
+
+Checks include: SSH hardening, firewall rules, kernel parameters, file permissions, password policy, unused service removal, and OpenStack-specific security settings.
 
 ---
 
-## 📚 Resources
+## Troubleshooting
 
-- [OpenStack Documentation](https://docs.openstack.org)
-- [OpenStack 2024.1 (Caracal) Release Notes](https://releases.openstack.org/caracal/)
-- [Ubuntu OpenStack Guide](https://ubuntu.com/openstack/docs)
-- [Neutron LinuxBridge Setup](https://docs.openstack.org/neutron/latest/admin/deploy-lb-provider.html)
-- [Nova Configuration Reference](https://docs.openstack.org/nova/latest/configuration/config.html)
+### A deployment step failed
+
+```bash
+# See what went wrong (the script shows this automatically on failure)
+less logs/deploy_TIMESTAMP.log
+
+# Fix the issue, then continue where you left off
+sudo bash deploy.sh --resume
+
+# Or roll back just the failed step and re-run it
+sudo bash deploy.sh --rollback-step nova    # replace 'nova' with the failed step name
+sudo bash deploy.sh --resume
+```
+
+### A service is down after deployment
+
+```bash
+# Check the health table
+sudo bash deploy.sh --verify
+
+# Check a specific service
+systemctl status nova-api
+journalctl -u nova-api -n 50 --no-pager
+
+# Re-run a single install script
+sudo bash scripts/base/05_nova.sh
+```
+
+### Common errors
+
+| Error | Fix |
+|---|---|
+| `HOST_IP = __CHANGE_ME__` | Run `sudo bash deploy.sh --wizard` |
+| `Access denied` in DB step | Check `DB_PASS` in `main.env` matches MariaDB root |
+| `Address already in use` | Another service is on a required port — check `sudo ss -tlnp` |
+| `No space left on device` | Free up disk — OpenStack needs 20 GB+ free |
+| `Connection refused` after deploy | Services may still be starting — wait 30s and run `--verify` |
+
+### Logs
+
+```bash
+# View latest deployment log
+sudo bash deploy.sh --config          # shows log path
+tail -f logs/deploy_*.log             # follow live during deployment
+
+# All logs are in logs/ and auto-pruned after LOG_KEEP_DAYS (default 30) days
+```
 
 ---
 
-## 📄 License
+## Contributing
 
-MIT — free to use, modify, and distribute. See `LICENSE` for details.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on bug reports, feature requests, and pull requests.
+
+---
+
+## Security
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md). Do not open a public issue for security problems.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
+
+---
+
+## Acknowledgements
+
+Built on [OpenStack Caracal (2024.1)](https://releases.openstack.org/caracal/) — the open-source cloud platform. Designed for Ubuntu Server 24.04 LTS.
